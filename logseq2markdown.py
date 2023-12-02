@@ -1,138 +1,96 @@
 """
-Parse Logseq Markdown files to create proper Markdown with (or without) frontmatter.
+Parse Logseq Markdown file to create proper Markdown adding params as frontmatter.
+Taking into consideration being FAST and/or PRECISE I'm being PRECISE over FAST.
+That's why it parses lines of Logseq file multiple times.
+TODO: #2 Optimize the code when and if it's plausible
 """
-import os
 import re
-from typing import Optional
 
+# TODO: #1 Remove `rich` dependency (used for now to help with development)
+# Yeah I know: W0622 "redefine built-in print" but I need it for now.
+# btw. `pip install rich` to use this to see nice output from Python.
 from rich import print as rprint
 
+# Frontmatter consts (without newline as it's added later)
+STR_FRONTMATTER_START = "---\n"
+STR_FRONTMATTER_END = "---\n\n"
 
-def get_list_of_files_from_dir(
-    dirname: str, ext: Optional[list[str]] = None
-) -> tuple[list[str], list[str]]:
-    """Returns tuple of lists: files and subdirectories. Starting at dirname and going recursively.
 
-    Modified from stackoverflow answer:
-    https://stackoverflow.com/questions/18394147/how-to-do-a-recursive-sub-folder-search-and-return-files-in-a-list#59803793
+def load_logseqmd_file_sanitized(file_path: str, encoding: str = "utf-8") -> list[str]:
+    """Loads file from `file_path` as list of sanitized lines split by newline ("\\n") character.\n
+    Each line is processed with rules below:
+    - newline ("\\n") removed;\n
+    - empty lines ("\\n", "- \\n", "-\\n") removed;\n
+    - first "\\t" removed;\n
+    - ... any other "\\t" left are replaced by double spaces as it means real list item;\n
 
     Args:
-        dirname (str): path do directory we want a file list of, recursively
-        ext (Optional[list[str]], optional): List of file extensions we're looking for.
-            Extensions should be provided without leading '.', i.e ["json"] NOT [".json"].
-            Defaults to None.
+        file_path (str): Proper path to Logseq *.md file
+        encoding (str): Encoding parameter provided to `open` Python function. Defaults to "utf-8".
 
     Returns:
-        tuple[list[str], list[str]]: touple of: list of all files with full paths that were
-        found in and under dirname (recursively).
-        If ext list is set list contains only files with extensions provided
-        AND
-        list of all subfolders that were found under dirname (not including dirname)
+        list[str]: list of sanitized lines from `file_path` Logseq file
     """
-    subdirectories: list[str] = []
-    files: list[str] = []
+    with open(file_path, "r", encoding=encoding) as f:
+        lines: list[str] = f.readlines()
 
-    for f in os.scandir(path=dirname):
-        if f.is_dir():
-            subdirectories.append(f.path)
+    return_lines: list[str] = []
+    for line in lines:
+        if line in ("\n", "- \n", "-\n"):
+            continue
 
-        if f.is_file():
-            if not ext:
-                files.append(f.path)
-            elif os.path.splitext(p=f.name)[1].lower()[1:] in ext:
-                files.append(f.path)
+        if line.startswith("- "):
+            line: str = line[2:]
 
-    for d in subdirectories:
-        f, sd = get_list_of_files_from_dir(dirname=d, ext=ext)
-        subdirectories.extend(sd)
-        files.extend(f)
-    return files, subdirectories
+        if line.startswith("\t"):
+            line = line.replace("\t", "", 1)
+
+        line = line.replace("\t", "  ")
+        line = line.strip("\n")
+
+        return_lines.append(line)
+
+    return return_lines
 
 
-def logseq2markdown(filename: str, encoding: str = "utf-8") -> str:
+def logseq_lines_to_markdown(logseq_lines: list[str]) -> str:
     """_summary_
 
     Args:
-        filename (str): _description_
-        encoding (str, optional): _description_. Defaults to "utf-8".
+        logseq_lines (_type_): _description_
 
     Returns:
         str: _description_
     """
-    logseq_lines: list[str] = []
-    with open(filename, "rt", encoding=encoding) as fh:
-        logseq_lines.extend(fh.readlines())
-
-    logseq_lines_no: int = len(logseq_lines)
-
-    mk_frontmatter: str = "---\n"
+    mk_frontmatter: str = STR_FRONTMATTER_START
     mk_content: list[str] = []
-    mk_inlist: bool = False
-    for line_index in range(
-        0, logseq_lines_no
-    ):  # !!! I'm getting index of list for purpose here !!!
-        line: str = logseq_lines[line_index]
 
-        # Sanitizing lines before interpreting:
-        ## skipping empty lines
-        if line.startswith(("-\n", "\n")):
-            mk_inlist = False
-            continue
-
-        ## removing logseq imposed list openings or "  " from each line that have it
-        if line.startswith(("- ", "  ")):
-            line = line[2:]
-
-        line = line.rstrip()
-
-        # Parsing lines with special meaning:
-        ## checking for title
+    for index, line in enumerate(logseq_lines):
+        # if line starts with "# " it's frontmatter "title:" parameter
         if line.startswith("# "):
             mk_frontmatter += "title: " + line[2:] + "\n"
-            mk_inlist = False
             continue
 
-        ## checking if line is "logseq.order-list-type:: <...>"
-        pattern = re.compile(r"logseq.[A-Za-z0-9-]+:: number")
-        results1 = pattern.findall(line)
-        if results1:
-            mk_content.pop()
-            prev_line = mk_content.pop().replace("\t", "  ")
-            mk_content.append(f"{prev_line}1. {logseq_lines[line_index - 1][2:]}")
+        # if it's frontmatter parameter we add it to frontmatter string
+        pattern_attributes = re.compile(r"[A-Za-z0-9-]+::\s")
+        results_attributes = pattern_attributes.findall(line)
+        if results_attributes:
+            mk_frontmatter += (
+                line.replace(
+                    results_attributes[0], results_attributes[0][0:-2] + " "
+                ).strip()
+                + "\n"
+            )
             continue
 
-        ## checking if line is an attribute
-        pattern = re.compile(r"[A-Za-z0-9-]+::\s")
-        results2 = pattern.findall(line)
-        if results2:
-            mk_frontmatter += line.replace(results2[0], results2[0][0:-2] + " ") + "\n"
-            mk_inlist = False
-            continue
+        mk_content.append(line)
 
-        ## we're in list
-        # pattern = re.compile(r"\t+- ")
-        # results3 = pattern.findall(line)
-        # if results3:
-        #     if mk_inlist:
-        #         prev_line = mk_content.pop().replace("\t", "  ")
-        #         mk_content.append(f"{prev_line}{line.replace("\t", "  ")}\n")
-        #     else:
-        #         mk_content.append(line.replace("\t", "  ") + "\n")
-        #         mk_inlist = True
-
-        #     continue
-
-        mk_inlist = False
-
-        ## replacing tabs with double spaces
-        line = line.replace("\t", " ")
-
-        ## line is a paragraph
-        mk_content.append(line + "\n")
-
-    mk_frontmatter += "---\n\n"
-    return mk_frontmatter + "\n".join(mk_content)
+    return mk_frontmatter + STR_FRONTMATTER_END + "\n\n".join(mk_content)
 
 
 if __name__ == "__main__":
-    rprint(logseq2markdown("data/Homepage.md"))
+    rprint(
+        logseq_lines_to_markdown(
+            load_logseqmd_file_sanitized(file_path="examples/in/Homepage.md")
+        )
+    )
