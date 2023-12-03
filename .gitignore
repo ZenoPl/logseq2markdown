@@ -164,3 +164,7 @@ cython_debug/
 
 # logseq2markdown
 data
+
+# Frontmatter Markdown CMS Extension - https://frontmatter.codes/docs
+.frontmatter
+frontmatter.json
