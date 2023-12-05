@@ -1,28 +1,29 @@
 """
-Parse Logseq Markdown file to create proper Markdown adding params as frontmatter.
-Taking into consideration being FAST and/or PRECISE I'm being PRECISE over FAST.
-That's why it parses lines of Logseq file multiple times.
-TODO: #2 Optimize the code when and if it's plausible
+Parse Logseq Markdown file to create a string of standard Markdown with Frontmatter.
+Taking into consideration priorities of running the code as being FAST vs being PRECISE
+I'm being PRECISE first and FAST later.
+That's why this code may parse Logseq file content multiple times.
+TODO: #2 Optimize the code when and if it's possible
 """
 import re
 
-# TODO: #1 Remove `rich` dependency (used for now to help with development)
-# Yeah I know: W0622 "redefine built-in print" but I need it for now.
-# btw. `pip install rich` to use this to see nice output from Python.
-from rich import print as rprint
-
-# Frontmatter consts (without newline as it's added later)
-STR_FRONTMATTER_START = "---\n"
-STR_FRONTMATTER_END = "---\n\n"
+# Frontmatter consts for start and end of Frontmatter YAML heading in Markdown
+FRONTMATTER_START_STR = "---\n"
+FRONTMATTER_END_STR = "---\n\n"
+FRONTMATTER_PARAM_NAME_REGEXP: str = r"[A-Za-z0-9-_.]+::\s"
+LOGSEQ_LIST_REGEXP: str = r"^[\s\t]*- "
 
 
-def load_logseqmd_file_sanitized(file_path: str, encoding: str = "utf-8") -> list[str]:
-    """Loads file from `file_path` as list of sanitized lines split by newline ("\\n") character.\n
+def load_logseq_sanitized(file_path: str, encoding: str = "utf-8") -> list[str]:
+    """Loads file from `file_path`, converts it to a list of strings and sanitizes each line.\n
+    Each line is created by splitting source by newline ("\\n") character.\n
     Each line is processed with rules below:
-    - newline ("\\n") removed;\n
-    - empty lines ("\\n", "- \\n", "-\\n") removed;\n
-    - first "\\t" removed;\n
-    - ... any other "\\t" left are replaced by double spaces as it means real list item;\n
+    - empty lines ("\\n", "- \\n", "-\\n", "- \\n") are removed as it helps with parsing later on;
+    - removing ("- ", "  ") from the beginning of each line to
+    remove Logseq "everyting is a list" approach
+    - first "\\t" removed as it indicates a real Markdown list element that
+    should start at the beginning of a line;
+    - newline char ("\\n") is removed from the end of each line as it helps with parsing later on;
 
     Args:
         file_path (str): Proper path to Logseq *.md file
@@ -36,61 +37,103 @@ def load_logseqmd_file_sanitized(file_path: str, encoding: str = "utf-8") -> lis
 
     return_lines: list[str] = []
     for line in lines:
-        if line in ("\n", "- \n", "-\n"):
+        # we skip empty lines
+        if line in ("\n", "- \n", "-\n", "- \n"):
             continue
 
-        if line.startswith("- "):
-            line: str = line[2:]
+        # we remove "- " or "  " from the beginning of line as
+        # it's Logseq specific "everyghing is a list" approach
+        if line.startswith(("- ", "  ")):
+            line = line[2:]
 
+        # we remove first occurance of tab character ("\\t") from a line as
+        # it's indicating list item
         if line.startswith("\t"):
             line = line.replace("\t", "", 1)
 
-        line = line.replace("\t", "  ")
-        line = line.strip("\n")
+        # we remove any newline character ("\\n") from end of the line
+        # line = line.rstrip("\n")
 
         return_lines.append(line)
 
     return return_lines
 
 
-def logseq_lines_to_markdown(logseq_lines: list[str]) -> str:
+def logseq2markdown(logseq_lines: list[str]) -> str:
     """_summary_
 
     Args:
-        logseq_lines (_type_): _description_
+        logseq_lines (list[str]): _description_
 
     Returns:
         str: _description_
     """
-    mk_frontmatter: str = STR_FRONTMATTER_START
     mk_content: list[str] = []
 
-    for index, line in enumerate(logseq_lines):
-        # if line starts with "# " it's frontmatter "title:" parameter
-        if line.startswith("# "):
-            mk_frontmatter += "title: " + line[2:] + "\n"
-            continue
+    # Using dict here as we don't want to have duplicate parameter names in Frontmatter
+    # (each should have unique indentifier).
+    # TODO: #4 We'll raise an Exception if already existing parameter is overwritten.
+    mk_frontmatter: dict[str, str] = {}
 
-        # if it's frontmatter parameter we add it to frontmatter string
-        pattern_attributes = re.compile(r"[A-Za-z0-9-]+::\s")
-        results_attributes = pattern_attributes.findall(line)
-        if results_attributes:
-            mk_frontmatter += (
-                line.replace(
-                    results_attributes[0], results_attributes[0][0:-2] + " "
-                ).strip()
-                + "\n"
+    param_regex = re.compile(FRONTMATTER_PARAM_NAME_REGEXP)
+    logseq_list_regexp = re.compile(LOGSEQ_LIST_REGEXP)
+
+    for line in logseq_lines:
+        params_result = param_regex.findall(line)
+        logseq_list_result = logseq_list_regexp.findall(line)
+
+        # if line containts "logseq.order-list-type:: number" it should be
+        # numbered list and this line should be ommited
+        if -1 != line.find("logseq.order-list-type:: number"):
+            line = mk_content.pop()
+            line = line.lstrip("\n")
+            line = line.replace("- ", "1. ", 1)
+            line = line.replace("\t", "    ")
+            mk_content.append(line)
+
+        # if line containts "logseq.order-list-type:: bulllet" it should be
+        # bullet point list and this line should be ommited
+        elif -1 != line.find("logseq.order-list-type:: bullet"):
+            line = mk_content.pop()
+            line = line.lstrip("\n")
+            line = line.replace("- ", "* ", 1)
+            line = line.replace("\t", "    ")
+            mk_content.append(line)
+
+        # if line is proper unordered list we parse it as such
+        elif logseq_list_result:
+            line = line.replace("\t", "    ")
+            line = line.lstrip("\n")
+            mk_content.append(line)
+
+        # if line starts with "# " it's Frontmatter "title:" parameter
+        elif line.startswith("# "):
+            mk_frontmatter["title"] = '"' + line[2:].strip() + '"'
+
+        # if line doesn't have any Logseq parameters (we check for them before) in it
+        # we process it as Frontmatter param
+        elif params_result:
+            mk_frontmatter[params_result[0][0:-3]] = line[len(params_result[0]) :]
+
+        else:
+            mk_content.append("\n" + line)
+
+    return_string: str = ""
+    if mk_frontmatter:
+        return_string = (
+            FRONTMATTER_START_STR
+            + "\n".join(
+                [
+                    f"{fm_item[0]}: {fm_item[1].strip()}"
+                    for fm_item in list(mk_frontmatter.items())
+                ]
             )
-            continue
+            + "\n"
+            + FRONTMATTER_END_STR
+        )
 
-        mk_content.append(line)
-
-    return mk_frontmatter + STR_FRONTMATTER_END + "\n\n".join(mk_content)
+    return return_string + "".join(mk_content)
 
 
 if __name__ == "__main__":
-    rprint(
-        logseq_lines_to_markdown(
-            load_logseqmd_file_sanitized(file_path="examples/in/Homepage.md")
-        )
-    )
+    print(logseq2markdown(load_logseq_sanitized(file_path="examples/in/Homepage.md")))

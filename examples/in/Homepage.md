@@ -15,7 +15,7 @@ public:: true
 - Nam eu metus quam. [[author]]
 -
 - Nam
-- ![375163895_1676570642853921_8442299518149853127_n.jpg](../assets/375163895_1676570642853921_8442299518149853127_n_1701134774049_0.jpg)
+- weqwioj ioqjwe qweqweqw qweiojqw qwmcqiomiomqwe
 - Ut
 - ## subtitle 2
 - Inte
@@ -44,7 +44,13 @@ public:: true
 		- ML six-two
 		- ML six-three
 			- ML six-three-one
+			  logseq.order-list-type:: number
 			- ML six-three-two
+			  logseq.order-list-type:: number
+			- ML six-three-three
+			- ML six-three-four
+			- ML six-three-five
+			  logseq.order-list-type:: number
 	- ML seven
 	  logseq.order-list-type:: number
 	- ML eight
