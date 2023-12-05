@@ -51,28 +51,26 @@ def load_logseq_sanitized(file_path: str, encoding: str = "utf-8") -> list[str]:
         if line.startswith("\t"):
             line = line.replace("\t", "", 1)
 
-        # we remove any newline character ("\\n") from end of the line
-        # line = line.rstrip("\n")
-
         return_lines.append(line)
 
     return return_lines
 
 
 def logseq2markdown(logseq_lines: list[str]) -> str:
-    """_summary_
+    """Goes through list of Logseq sanitized lines (provided by `load_logseq_sanitized()`) and
+    translates them to proper Markdown and Frontmatter.
 
     Args:
-        logseq_lines (list[str]): _description_
+        logseq_lines (list[str]): List of sanitized lines from Logseq file loader
 
     Returns:
-        str: _description_
+        str: String containing Frontmatter header in YML format followed by proper Markdown.
     """
     mk_content: list[str] = []
 
     # Using dict here as we don't want to have duplicate parameter names in Frontmatter
     # (each should have unique indentifier).
-    # TODO: #4 We'll raise an Exception if already existing parameter is overwritten.
+    # TODO: #4 Raise an Exception if already existing frontmatter parameter is overwritten
     mk_frontmatter: dict[str, str] = {}
 
     param_regex = re.compile(FRONTMATTER_PARAM_NAME_REGEXP)
@@ -102,19 +100,20 @@ def logseq2markdown(logseq_lines: list[str]) -> str:
 
         # if line is proper unordered list we parse it as such
         elif logseq_list_result:
-            line = line.replace("\t", "    ")
             line = line.lstrip("\n")
+            line = line.replace("\t", "    ")
             mk_content.append(line)
 
-        # if line starts with "# " it's Frontmatter "title:" parameter
+        # if line starts with "# " (meaning h1 in html) we parse it as Frontmatter "title:" param
         elif line.startswith("# "):
             mk_frontmatter["title"] = '"' + line[2:].strip() + '"'
 
-        # if line doesn't have any Logseq parameters (we check for them before) in it
-        # we process it as Frontmatter param
+        # if line doesn't have any Logseq-specific parameters like numbered or bullet list in it
+        # and has Frontmatter param format we add it to Frontmatter header
         elif params_result:
             mk_frontmatter[params_result[0][0:-3]] = line[len(params_result[0]) :]
 
+        # otherwise we add it to content as any other Markdown element
         else:
             mk_content.append("\n" + line)
 
@@ -136,4 +135,4 @@ def logseq2markdown(logseq_lines: list[str]) -> str:
 
 
 if __name__ == "__main__":
-    print(logseq2markdown(load_logseq_sanitized(file_path="examples/in/Homepage.md")))
+    logseq2markdown(load_logseq_sanitized(file_path="examples/in/Homepage.md"))
